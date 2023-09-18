@@ -21,6 +21,8 @@ STOPWORD_LIST =  ["yes", "sure", "yep", "yeah", "go", "go ahead", "next", "ready
 public_url = "https://phonebot.rxinformatics.net"
 wss_url = "wss://phonebot.rxinformatics.net"
 llm_url = "http://localhost:5003"
+grading_url = "http://localhost:5004"
+syntax_url = "http://localhost:5005"
 MEMORY_WORDS = os.listdir('soundfiles')
 
 
@@ -78,18 +80,26 @@ class CallState:
         self.controller = PhoneConversationController()
         self.memory_exercise_words=""
         self.memory_exercise_reply=""
-        self.memory_grade=float("nan")
+        self.memory_grade=""
         self.memory_exercise_reply_2=""
-        self.memory_grade_2=float("nan")
+        self.memory_grade_2=""
         self.f_reply=""
-        self.f_grade=float("nan")
+        self.f_grade=""
         self.animal_reply=""
-        self.animal_grade=float("nan")
+        self.animal_grade=""
+        self.syntax_grades=""
+        self.history=""
+        self.perplexity=""
 
     async def after_call(self):
         print(f'call {self.call_sid} completed')
+        for handle in [self.perplexity_grade_handle, self.memory_grade_handle, self.f_grade_handle, self.animal_grade_handle, self.memory_grade_2_handle, self.syntax_grade_handle]:
+            try:
+                await handle
+            except Exception as e:
+                print(e)
         async with aiofiles.open('internal.pcm', 'wb+') as f:
-            await f.write(self.controller.internal_bytes)
+            await f.write(self.controller.patient_track)
         async with aiofiles.open('outbound.pcm', 'wb+') as f:
             await f.write(self.controller.outbound_bytes)
         proc = await asyncio.create_subprocess_shell(
@@ -105,15 +115,27 @@ class CallState:
         session.add(CallLog(
             call_sid=self.call_sid, 
             data={
-                "mturk_id":self.mturk_id,
+                #"mturk_id":self.mturk_id,
                 "conversation_log": self.controller.conversation_log,
+                "grades": {
+                    "memory_exercise_words":self.memory_exercise_words,
+                    "memory_exercise_reply":self.memory_exercise_reply,
+                    "memory_grade":self.memory_grade,
+                    "memory_exercise_reply_2":self.memory_exercise_reply_2,
+                    "memory_grade_2":self.memory_grade_2,
+                    "f_reply":self.f_reply,
+                    "f_grade":self.f_grade,
+                    "animal_reply":self.animal_reply,
+                    "animal_grade":self.animal_grade,
+                    "syntax_grades":self.syntax_grades,
+                    "history":self.history,
+                    "perplexity":self.perplexity,
+                },
             }, 
             timestamp=self.timestamp.isoformat(),
             
         ))
         session.commit()
-        client.calls(self.call_sid).update(status='completed')
-        
 
     async def handle_streams(self, frame, websocket, stream_sid):
         await self.controller.receive_inbound(base64.b64decode(frame['media']['payload']))
@@ -169,107 +191,141 @@ class CallState:
         
    
     async def bot_initiated_script(self):
-    #await self.controller.say("Hello. I am an automated nursing assistant with the salsa study.")
-        await self.controller.say("This call will be recorded for research use")
-        await self.controller.say("Because I am a robot, I can be slow sometimes. Please don't hang up if I take too long to respond or say things that don't make much sense.")
-        mturk_id = random.randint(101,999)
-        self.mturk_id = mturk_id
-        words = ' '.join(num2words(mturk_id).split('-'))
-        print("mturk_id", mturk_id)
-        mturk_line = f"Your mechanical turk number for the user experience survey is {words}. Please write this number down to enter it in the survey later: {words}."
-        print("line", mturk_line)
-        await self.controller.say(mturk_line)
-        response = await self.controller.ask("I am going to ask you a few questions. "
-                     "Please listen carefully and answer them in as much detail as you can. "
-                     "Are you ready?", stopword_list=STOPWORD_LIST)
+        print('began talking')
+        #await self.controller.say("Hello. I am an automated nursing assistant with the salsa study.")
+        await self.controller.say("This call will be recorded for research use.")
+        await self.controller.say("Because I am a robot, I can be slow sometimes.")
+        await self.controller.say("Please don't hang up if I take too long to respond or say things that don't make much sense.")
+        #mturk_id = random.randint(101,999)
+        #self.mturk_id = mturk_id
+        #words = []
+        #nmap = {'0':'zero','1':'one','2':'two','3':'three','4':'four','5':'five','6':'six','7':'seven','8':'eight','9':'nine'}
+        #for s in str(mturk_id):
+        #    words.append(nmap[s])
+        #words = ', '.join(words)
+        #print("mturk_id", mturk_id)
+        #mturk_line = f"Your mechanical turk number for the user experience survey is {words}. Please write this number down to enter it in the survey later: {words}."
+        #print("line", mturk_line)
+        #await self.controller.say(mturk_line)
+        await self.controller.say("I am going to ask you a few questions.")
+        await self.controller.say("Please listen carefully and answer them in as much detail as you can.")
+        print('finished intro')
+        response = await self.controller.ask("Are you ready?", stopword_list=STOPWORD_LIST, final_transcribe=False)
         history = []
         init_question = ("Okay. First, I would like to ask you how you are feeling. "
                                 "For example, have there been any changes in how you feel in the last few hours?")
         history.append(("SYSTEM", init_question))
         free_response_1 = await self.controller.ask(init_question,
-                                minimum_turn_time=4,
+                                minimum_turn_time=5,
                                 await_silence=True,
-                                silence_window=1)
+                                silence_window=2, stopword_list=['continue'])
         history.append(("USER", free_response_1))
         init_followup = await self.get_response(history)
         history.append(("SYSTEM", init_followup))
-        free_response_2 = await(self.controller.ask(init_followup, await_silence=True, minimum_turn_time=10))
+        free_response_2 = await(self.controller.ask(init_followup, await_silence=True, minimum_turn_time=5, silence_window=2, stopword_list=['continue']))
         history.append(("USER", free_response_2))
         #This gets a custom reply from the chatbot.
         topic = random.choice(["your favorite book", "your most memorable trip", "a memorable event in your life"])
         topic_question = (f"Thank you for sharing. Now, I would like to ask you to tell me as much as you can about {topic}. "
                                 "Feel free to take your time in answering.")
         history.append(("SYSTEM", topic_question))
-        free_response_3 = await self.controller.ask(f"Thank you for sharing. Now, I would like to ask you to tell me as much as you can about {topic}. "
-                                "Feel free to take your time in answering.",
-                                minimum_turn_time=4,
+        free_response_3 = await self.controller.ask(topic_question,
+                                minimum_turn_time=5,
                                 await_silence=True,
-                                silence_window=1,
-                                stopword_list=['please continue'])
+                                silence_window=2,
+                                stopword_list=['continue'])
         history.append(("USER", free_response_3))
         topic_followup = await self.get_response(history)
         history.append(("SYSTEM", topic_followup))
-        free_response_4 = await(self.controller.ask(topic_followup, await_silence=True, minimum_turn_time=10, silence_window=4))  #This gets a custom reply from the chatbot.
+        free_response_4 = await(self.controller.ask(topic_followup, await_silence=True, minimum_turn_time=5, silence_window=2, stopword_list=['continue']))  #This gets a custom reply from the chatbot.
         history.append(("USER", free_response_4))
-        #async def perplexity_grade():
-        #   async with aiohttp.ClientSession() as session:
-        #       async with session.get(f'{llm_url}/perplexity', json=history) as resp:
-        #           self.perplexity = await resp.json()
-        #           print(gpt_perplexity)
-        #perplexity_grade_handle = asyncio.ensure_future(perplexity_grade())
-        response = await self.controller.ask("Thank you. Now, I am going to ask you to read a list of six words. "
-                                "you will hear six words being spoken to you. Please repeat each word aloud as it is being spoken to you."
-                                "Later, I will ask you to recall all six words. "
-                                "Are you ready?",
-                                stopword_list=STOPWORD_LIST)
-        await self.controller.say("Here is the list. ",final_pause=1)
+        self.history = history
+        async def perplexity_grade():
+           async with aiohttp.ClientSession() as session:
+               async with session.post(f'{llm_url}/perplexity', json=history) as resp:
+                   self.perplexity = await resp.json()
+                   print('perplexity', self.perplexity)
+        self.perplexity_grade_handle = perplexity_grade()
+        async def syntax_grade():
+            async with aiohttp.ClientSession() as session:
+               syntax_grades = []
+               for speaker, sentence in history:
+                   if speaker == "USER":
+                       async with session.post(f'{syntax_url}/', json=sentence) as resp:
+                           sg = await resp.json()
+                           syntax_grades.append([sentence, sg])
+            self.syntax_grades = syntax_grades
+            print(self.syntax_grades)
+            print('syntax graded')
+        self.syntax_grade_handle = syntax_grade()
+        await self.controller.say("Thank you. Now, I am going to ask you to read a list of six words.")
+        await self.controller.say("You will hear six words being spoken to you. Please repeat each word aloud as it is being spoken to you.")
+        await self.controller.say("Later, I will ask you to recall all six words.")
+        response = await self.controller.ask("Are you ready?",stopword_list=STOPWORD_LIST, final_transcribe=False)
+        await self.controller.say("Here is the list.")
         self.word_files = random.choices(MEMORY_WORDS, k=6)
         self.memory_exercise_words = [w.split('.')[0] for w in self.word_files]
-        for w in self.word_files:
-          await self.controller.say(f'soundfiles/{w}', final_pause=1, file_=True)
-        memory_response = await self.controller.ask("Say next when you are done",
-                               wait_time=30, stopword_list=['next'])
-        #async def memory_grade():
-        #    async with aiohttp.ClientSession() as session:
-        #        async with session.get('http://coherence:8000/grade-memory-test', json={
-        #                'transcript': memory_response,
-        #                'word_list': self.memory_exercise_words
-        #            }) as resp:
-        #            self.memory_grade = await resp.json()
-        #            print(self.memory_grade)
-        #memory_grade_handle = asyncio.ensure_future(memory_grade())
-        response = await self.controller.ask("Thank you. Now, I will give you a letter of the alphabet. "
-                               "I am going to ask you to name words that begin with that letter, as fast as you can. "
-                               "For example, if I give you the letter S, as in sam, you can say soft, smile, and so on. "
-                               "Do not use the same word with a different ending such as smiling, or smiles. "
-                               "Are you ready?", stopword_list=STOPWORD_LIST)
-        await self.controller.say("Okay. Your letter is the letter F, as in foxtrot. Please name all the words that you can think of that begin with the letter F. ")
+        for w in self.memory_exercise_words:
+          await self.controller.say(f'{w}.', final_pause=1)
+        memory_response = await self.controller.ask("Now repeat as many of these words as you remember and say next when you are done. Please begin.",
+                               wait_time=30,  stopword_list=['next'])
+        async def memory_grade():
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f'{grading_url}/grade-memory-test', json={
+                        'transcript': memory_response,
+                        'word_list': self.memory_exercise_words
+                    }) as resp:
+                    self.memory_exercise_reply = memory_response
+                    self.memory_grade = await resp.json()
+                    print(self.memory_grade)
+        self.memory_grade_handle = memory_grade()
+        await self.controller.say("Thank you. Now, I will give you a letter of the alphabet.")
+        await self.controller.say("I am going to ask you to name words that begin with that letter, as fast as you can.")
+        await self.controller.say("For example, if I give you the letter S, as in sam, you can say soft, smile, and so on.")
+        await self.controller.say("Do not use the same word with a different ending such as smiling, or smiles.")
+        response = await self.controller.ask("Are you ready?", stopword_list=STOPWORD_LIST, final_transcribe=False)
+        await self.controller.say("Okay. Your letter is the letter F, as in foxtrot.")
+        await self.controller.say("Please name all the words that you can think of that begin with the letter F.")
         f_response = await self.controller.ask("You have thirty seconds. Please begin.", wait_time=30, stopword_list=['next'])
-        #async def f_grade():
-        #    async with aiohttp.ClientSession() as session:
-        #        async with session.get('http://coherence:8000/grade-f-test', json=f_response) as resp:
-        #            self.f_grade = await resp.json()
-        #            print("f grade", self.f_grade)
-        #f_grade_handle = asyncio.ensure_future(f_grade())
-        response = await self.controller.ask("Please stop. Now, I will give you a category. "
-                         "I am going to ask you to name as fast as you can all the things that belong to that category. "
-                         "For example, if I give you the category of articles of clothing, you can say shirt, or jacket, or pants, and so on. "
-                         "Are you ready?", stopword_list=STOPWORD_LIST)
-        animal_response = await self.controller.ask("Okay. Your category is animals. Begin naming as many animals as you can think of. You have thirty seconds.", wait_time=30, stopword_list=['next'])
-        #async def animal_grade():
-        #    async with aiohttp.ClientSession() as session:
-        #        async with session.get('http://coherence:8000/grade-animal-test', json=animal_response) as resp:
-        #            self.animal_grade = await resp.json()
-        #            print(self.animal_grade)
-        #animal_grade_handle = asyncio.ensure_future(animal_grade())
+        async def f_grade():
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f'{grading_url}/grade-f-test', json=f_response) as resp:
+                    self.f_reply = f_response
+                    self.f_grade = await resp.json()
+                    print("f grade", self.f_grade)
+        self.f_grade_handle = f_grade()
+        await self.controller.say("Please stop. Now, I will give you a category.")
+        await self.controller.say("I am going to ask you to name as fast as you can all the things that belong to that category.")
+        await self.controller.say("For example, if I give you the category of articles of clothing, you can say shirt, or jacket, or pants, and so on.")
+        response = await self.controller.ask("Are you ready?", stopword_list=STOPWORD_LIST, final_transcribe=False)
+        await self.controller.say("Okay. Your category is animals.") 
+        await self.controller.say("Begin naming as many animals as you can think of.")
+        animal_response = await self.controller.ask("You have thirty seconds. Please begin.", wait_time=30, stopword_list=['next'])
+        async def animal_grade():
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f'{grading_url}/grade-animal-test', json=animal_response) as resp:
+                    self.animal_grade = await resp.json()
+                    self.animal_reply = animal_response
+                    print(self.animal_grade)
+        self.animal_grade_handle = animal_grade()
 
-        response = await self.controller.ask("Please stop. We are almost done. Just one last thing. "
-                         "A few minutes ago I read a list of six words to you. "
-                         "Please try to recall as many of these words as you can and say them aloud as you remember them. "
-                         "You have thirty seconds. Please begin.", wait_time=30, stopword_list=['next'])
-        speech_interval = await self.controller.ask("Thank you. This concludes our session. Until next time. Goodbye", wait_time=1)
-        #await asyncio.gather(perplexity_grade_handle, memory_grade_handle, f_grade_handle, animal_grade_handle)
-
+        await self.controller.say("Please stop. We are almost done. Just one last thing.")
+        await self.controller.say("A few minutes ago I read a list of six words to you.")
+        await self.controller.say("Please try to recall as many of these words as you can and say them aloud as you remember them.")
+        memory_response_2 = await self.controller.ask("You have thirty seconds. Please begin.", wait_time=30, stopword_list=['next'])
+        async def memory_grade_2():
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f'{grading_url}/grade-memory-test', json={
+                        'transcript': memory_response_2,
+                        'word_list': self.memory_exercise_words
+                    }) as resp:
+                    self.memory_grade_2 = await resp.json()
+                    self.memory_exercise_reply_2 = memory_response_2
+                    print(self.memory_grade_2)
+        self.memory_grade_2_handle = memory_grade_2()
+        await self.controller.say("Thank you. This concludes our session.")
+        speech_interval = await self.controller.ask("Until next time. Goodbye.", wait_time=1)
+        client.calls(self.call_sid).update(status='completed')
 
 
 
