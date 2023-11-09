@@ -1,66 +1,73 @@
-import sqlalchemy
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
-from sqlalchemy import Column, String, Text, Float, DateTime, Integer
 from dataclasses import dataclass
 from datetime import datetime
 from starlette.config import Config
-from sqlalchemy.dialects.postgresql import JSONB
-from typing import Dict, Optional, List
+from sqlalchemy.types import JSON
+from sqlalchemy.schema import Column
+from typing import Dict, Optional, List, Any
 from typing_extensions import TypedDict
+from sqlmodel import Field, SQLModel, create_engine
+from sqlalchemy.engine import URL
+config = Config(".env")
+from sqlalchemy.engine import URL
+url_object = URL.create(
+    "postgresql",
+    username=config('DBUSERNAME'),
+    password=config('DBPASSWORD'),  # plain (unescaped) text
+    host=config('DBHOST'),
+    database=config('DBNAME'),
+)
 
-config = Config(".build_env")
-
-engine = create_engine('postgresql://postgres:password@localhost/postgres')
-Session = sessionmaker(bind=engine)
-
-Base = declarative_base()
+engine = create_engine(url_object)
 
 
-class CallData(TypedDict, total=False):
-    number: Optional[str]
-    mturk_id: Optional[int]
-    conversation_log: Optional[str]
-    memory_exercise_words: Optional[List[str]]
-    memory_exercise_reply: Optional[str]
-    memory_grade: Optional[float]
-    memory_exercise_reply_2: Optional[str]
-    memory_grade_2: Optional[float]
-    f_reply: Optional[str]
-    f_grade: Optional[float]
-    animal_reply: Optional[str]
-    animal_grade: Optional[float]
 
-class Patient(TypedDict, total=False):
-    number: Optional[str]
-    patient_id: Optional[str]
+
 
 @dataclass
-class CallLog(Base):
-    __tablename__ = "call_logs"
-     
-    call_sid = Column(String, primary_key=True)
+class CallLog(SQLModel, table=True):
+    call_sid: str = Field(primary_key=True)
+    phone_number: str
+    timestamp: datetime
+    participant_study_id: str = Field(default="unknown")
+    rejected: Optional[str] = Field(default="false")
+    previous_rejects: int
+    history: list[tuple[str,str]] = Field(sa_column=Column(JSON))
+    syntax_grade: Optional[list] = Field(sa_column=Column(JSON), default=[])
+    perplexity_grade: Optional[float] = Field(default=None)
+    memory_exercise_words: Optional[List[str]] = Field(sa_column=Column(JSON), default=None)
+    memory_exercise_reply: Optional[str] = Field(default=None)
+    memory_grade: dict = Field(sa_column=Column(JSON), default={})
+    memory_exercise_reply_2: Optional[str] = Field(default=None)
+    memory_grade_2: dict = Field(sa_column=Column(JSON), default={})
+    l_reply: Optional[str] = Field(default=None)
+    l_grade: dict = Field(sa_column=Column(JSON), default={})
+    animal_reply: Optional[str] = Field(default=None)
+    animal_grade: dict = Field(sa_column=Column(JSON), default={})
+    dysarthria_grade: Optional[float] = Field(default=None)
+    miscellaneous: dict = Field(sa_column=Column(JSON), default={})
 
-    number:str
-    number = Column(String)
-
-    patient_id:str
-    patient_id = Column(String)
-
-    data:CallData
-    data = Column(JSONB)
-
-    timestamp:datetime
-    timestamp = Column(DateTime)
 
 @dataclass
-class Patient(Base):
-    number:str
-    number = Column(String)
+class Participant(SQLModel, table=True):
+    participant_study_id: str = Field(primary_key=True)
+    phone_number: str
+    end_date: datetime
+    start_date: datetime
+    morning_time: int
+    afternoon_time: int
+    evening_time: int
+    morning_minute: int
+    afternoon_minute: int
+    evening_minute: int
 
-    patient_id:str
-    patient_id = Column(String)
 
+@dataclass
+class ScheduledCall(SQLModel, table=True):
+    id: str = Field( primary_key=True)
+    phone_number: str
+    time: datetime
+    rejects: int
 
-def init_database():
-    Base.metadata.create_all(engine)
+#by calling python database.py this is executed and the database is initialized
+if __name__ == '__main__':
+    SQLModel.metadata.create_all(engine)

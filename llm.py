@@ -2,21 +2,15 @@ from starlette.responses import PlainTextResponse, JSONResponse
 from starlette.requests import Request
 from starlette.applications import Starlette
 from starlette.routing import Route
-from transformers import BlenderbotTokenizer, BlenderbotForConditionalGeneration
 from transformers import LlamaTokenizer, LlamaForCausalLM
 import torch
 import os
 debug = os.getenv('debug')
-if debug:
-    import time
+import time, re, regex
+import exllama_interact
 
-mname = "/data1/models/blenderbot-400M-distill"
-model = BlenderbotForConditionalGeneration.from_pretrained(mname, torch_dtype=torch.float16).to(device='cuda')
-tokenizer = BlenderbotTokenizer.from_pretrained(mname)
-tokenizer.truncation_side='left'
-
-llama_model = LlamaForCausalLM.from_pretrained('/data1/models/llama-7b-hf')
-llama_tokenizer = LlamaTokenizer.from_pretrained('/data1/models/llama-7b-hf')
+llama_model = LlamaForCausalLM.from_pretrained('./models/llama-7b-hf')
+llama_tokenizer = LlamaTokenizer.from_pretrained('./models/llama-7b-hf')
 
 app = Starlette()
 
@@ -24,15 +18,13 @@ app = Starlette()
 @app.route('/generate', methods=['POST'])
 async def process_array(request):
     history = await request.json()
-    utterance = history[-1][-1]
-    if debug:
-        start_time = time.time()
-    inputs = tokenizer([utterance], return_tensors="pt", truncation=True).to(device='cuda')
-    reply_ids = model.generate(**inputs)[0]
-    reply = tokenizer.decode(reply_ids, skip_special_tokens=True)
-    if debug:
-        print('llm time:', time.time() -  start_time)
-    return PlainTextResponse(reply)
+    start_time = time.time()
+    speaker, utterance = history[-1]
+    if speaker == 'USER':
+        response = await exllama_interact.converse(utterance)
+        response = re.sub(' {2,}', ' ', regex.sub(r'[^\p{Latin}]', ' ', re.sub('\*.+\*', '', response)))
+        print('llm_time', time.time() - start_time)
+        return PlainTextResponse(response)
 
 
 @app.route('/perplexity', methods=['POST'])

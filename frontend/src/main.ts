@@ -1,9 +1,13 @@
 import { createApp } from 'vue'
 import App from './models/App.vue'
-import PrimeVue from 'primevue/config'
-import 'primevue/resources/themes/bootstrap4-dark-blue/theme.css';
-
-
-const app = createApp(App)
-app.use(PrimeVue, {ripple:true})
-app.mount("#app")
+import 'vuetify/styles'
+import { createVuetify } from 'vuetify'
+import * as components from 'vuetify/components'
+import * as directives from 'vuetify/directives'
+import VCalendar from 'v-calendar'
+import 'v-calendar/style.css'
+const vuetify = createVuetify({
+  components,
+  directives
+})
+createApp(App).use(vuetify).use(VCalendar, {}).mount('#app')

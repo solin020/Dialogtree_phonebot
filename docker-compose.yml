@@ -1,8 +1,6 @@
 version: "3.9"
 services:
-  grading:
-    image: localhost:5000/coherence:latest
-    ports: ["5004:8000"]
   syntax:
-    image: localhost:5000/clas:latest
+    restart: always
+    image: phonebot_clas:latest
     ports: ["5005:8000"]

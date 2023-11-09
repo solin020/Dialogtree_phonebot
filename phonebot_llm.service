@@ -1,1 +1,13 @@
-/etc/systemd/system/phonebot_llm.service
+[Service]
+Description=Phonebot gateway
+After=network.target
+StartLimitIntervalSec=0[Service]
+Type=simple
+Restart=always
+RestartSec=5
+User=solin020
+WorkingDirectory=/home/solin020/phonebot
+ExecStart=/home/solin020/phonebot/env/bin/python -m uvicorn --host 127.0.0.1 --port 5003 llm:app 
+
+[Install]
+WantedBy=multi-user.target

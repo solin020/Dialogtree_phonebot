@@ -6,17 +6,17 @@ import torch
 from io import BytesIO
 import time
 from TTS.utils.synthesizer import Synthesizer
+from config import model_directory
+import os
 
-model_path='/home/solin020/.local/share/tts/tts_models--en--ljspeech--tacotron2-DDC_ph/model_file.pth'
-config_path='/home/solin020/.local/share/tts/tts_models--en--ljspeech--tacotron2-DDC_ph/config.json'
+model_path = os.path.join(model_directory, 'tts_model', 'model_file.pth')
+config_path = os.path.join(model_directory, 'tts_model', 'config.json')
+vocoder_path = os.path.join(model_directory, 'tts_vocoder', 'model_file.pth')
+vocoder_config_path = os.path.join(model_directory, 'tts_vocoder', 'config.json')
 speakers_file_path=None
-vocoder_path='/home/solin020/.local/share/tts/vocoder_models--en--ljspeech--univnet/model_file.pth'
-vocoder_config_path='/home/solin020/.local/share/tts/vocoder_models--en--ljspeech--univnet/config.json'
 synthesizer = Synthesizer(
     tts_checkpoint=model_path,
     tts_config_path=config_path,
-    tts_speakers_file=speakers_file_path,
-    tts_languages_file=None,
     vocoder_checkpoint=vocoder_path,
     vocoder_config=vocoder_config_path,
     encoder_checkpoint="",
