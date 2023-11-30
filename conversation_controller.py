@@ -113,7 +113,7 @@ class ConversationController(ABC):
                 return ""
             await asyncio.sleep(STOPWORD_INTERVAL)
             async with aiohttp.ClientSession() as session:
-                async with session.post(f'{stt_url}/process-bytes', data=self.participant_track[-STOPWORD_WINDOW:]) as resp:
+                async with session.post(f'{stt_url}/process-stopword', data=self.participant_track[-STOPWORD_WINDOW:]) as resp:
                     stopword = await resp.text()
                     print('stopword', stopword, flush=True)
                     if any(sl.lower() in stopword.lower() for sl in stopword_list):
@@ -134,7 +134,7 @@ class ConversationController(ABC):
 
  
     async def play_file(self, file_:str, final_pause:float=0, initial_pause:float=0.5):
-        cmd = f"cp {file_} {self.temp_file}"
+        cmd  = f"cp {file_} {self.temp_file}"
         proc = await asyncio.create_subprocess_shell(
             cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -160,10 +160,12 @@ class ConversationController(ABC):
         await self.pause(final_pause)
         return len(self.outbound_bytes) 
 
-    async def ask(self, question, await_silence=False, stopword_list=None, wait_time=None, minimum_turn_time=3, silence_window=1, final_transcribe=True, final_pause=0.5,
-                  return_stopword=False):
+    async def ask(self, question, file=None, await_silence=False, stopword_list=None, wait_time=30, minimum_turn_time=3, silence_window=1, 
+            final_transcribe=True, final_pause=0.5,return_stopword=False):
         assert (await_silence or stopword_list or wait_time), "The bot must be listening for something"
         end_speech_pos = await self.say(question, final_pause=final_pause)
+        if file is not None:
+            end_speech_pos = await self.play_file(file)
         await self.add_timer(end_speech_pos).wait()
         print("asked", question)
         start_timepoint = len(self.participant_track)

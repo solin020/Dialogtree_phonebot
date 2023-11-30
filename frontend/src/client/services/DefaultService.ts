@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { CallLog } from '../models/CallLog';
 import type { CallLogHeader } from '../models/CallLogHeader';
+import type { Job } from '../models/Job';
 import type { Participant } from '../models/Participant';
 import type { ScheduledCall } from '../models/ScheduledCall';
 
@@ -149,6 +150,18 @@ export class DefaultService {
             errors: {
                 422: `Validation Error`,
             },
+        });
+    }
+
+    /**
+     * Entire Schedule
+     * @returns Job Successful Response
+     * @throws ApiError
+     */
+    public static entireScheduleEntireScheduleGet(): CancelablePromise<Array<Job>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/entire-schedule',
         });
     }
 

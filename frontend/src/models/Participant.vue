@@ -10,6 +10,28 @@
         <v-btn @click="executeDeleteParticpant()">Delete Particpant</v-btn>
         <v-btn @click="closeDeleteParticpant()">Cancel</v-btn>
     </dialog>
+    <dialog id="showDayDialog" style="overflow:auto;">
+            <h1>Info for {{props.participant_study_id}} on {{show_day_time.toLocaleString()}}</h1>
+	    <v-btn @click="closeDay()">Close day viewer</v-btn>
+	    <ul>
+            <template v-for="a in attributes">
+	    <li v-if="sameDay(a.dates, show_day_time)" :key="a.customData.key">
+		<div v-if="a.customData.call_type==='future'">
+		    <h2>{{new Date(a.customData.time).toLocaleTimeString()}}</h2>
+		    <VBtn @click="cancelCall(a.customData)">Cancel Call</VBtn>
+		</div>
+		<div v-else>
+		    <h2>{{new Date(a.customData.timestamp).toLocaleTimeString()}}</h2>
+		    <v-btn @click="viewCallLog(a.customData.call_sid)">View Call Log</v-btn>
+		    <dialog :id="a.customData.call_sid" style="overflow:auto;">
+			<v-btn @click="closeCallLog(a.customData.call_sid)">Close Call Log</v-btn>
+			<CallLog  :call_sid="a.customData.call_sid" :date="new Date(a.customData.timestamp).toLocaleString()"></CallLog>
+		    </dialog>
+		</div>
+	    </li>
+            </template>
+	    </ul>
+    </dialog>
     <VTabs v-model="tab">
             <VTab value="overview">View participant call logs</VTab>
             <VTab value="individualcall">Schedule a single call</VTab>
@@ -19,23 +41,8 @@
         <VWindowItem key="overview"  value="overview" :transition="false" :reverse-transition="false">
             <h1>View participant call logs and future scheduled calls</h1>
             <Calendar :attributes="attributes" >
-                <template #day-popover="{attributes }" :key="calrefresh">
-                    <div style="max-height: 30vh;overflow-y: scroll;">
-                    <div v-for="{customData} in attributes" :key="customData.id">
-                        <template v-if="customData.call_type==='future'" :key="customData.id + customData.call_type">
-                            <h2>{{new Date(customData.time).toLocaleString()}}</h2>
-                            <VBtn @click="cancelCall(customData)">Cancel Call</VBtn>
-                        </template>
-                        <template v-if="customData.call_type==='past'" :key="customData.id + customData.call_type">
-                            <div>{{new Date(customData.timestamp).toLocaleString()}}</div>
-                            <v-btn @click="viewCallLog(customData.call_sid)">View Call Log</v-btn>
-                            <dialog :id="customData.call_sid" style="overflow:auto;">
-                                <v-btn @click="closeCallLog(customData.call_sid)">Close Call Log</v-btn>
-                                <CallLog  :call_sid="customData.call_sid" :date="new Date(customData.timestamp).toLocaleString()"></CallLog>
-                            </dialog>
-                        </template>
-                    </div>
-                    </div>
+                <template #day-popover="{day}">
+                    <v-btn @click="viewDay(day.date)">View all calls and scheduled calls for this day</v-btn>
                 </template>
             </Calendar>
             <h1>Cancel all calls for this participant</h1>
@@ -60,9 +67,20 @@ import ScheduleCalls from './ScheduleCalls.vue'
 import {DatePicker, Calendar} from 'v-calendar'
 import CallLog from './CallLog.vue'
 let call_time = ref(new Date())
+let show_day_time = ref(new Date())
+function sameDay(d1:Date, d2:Date) {
+  return (d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate())
+}
+function viewDay(day:Date){
+    show_day_time.value = day;
+    (<HTMLDialogElement>document.getElementById("showDayDialog")).showModal()
+}
+function closeDay(){
+    (<HTMLDialogElement>document.getElementById("showDayDialog")).close()
+}
 
-
-let calrefresh = ref("")
 export interface Props {
     phone_number:string,
     participant_study_id:string,
@@ -70,17 +88,12 @@ export interface Props {
 const props = withDefaults(defineProps<Props>(), {
 })
 let tab: Ref<String|null> = ref(null);
-let scheduled_call_list:Ref<ScheduledCall[]> = ref([]);
+const scheduled_call_list:Ref<ScheduledCall[]> = ref([]);
 const past_call_list:Ref<CallLogHeader[]> = ref([])
 let confirm_participant_study_id = ref("")
 let confirm_phone_number = ref("")
 
 
-DefaultService.apiCallListApiCallListGet(props.participant_study_id).then(
-    r => {
-        past_call_list.value = r
-    }
-)
 
 const deleteParticpantDialog: Ref<HTMLDialogElement|null> = ref(null)
 function openDeleteParticpant(){
@@ -106,9 +119,13 @@ function preload(){
     DefaultService.listScheduleCallsListScheduledCallsGet(props.phone_number).then(
         r => {
             scheduled_call_list.value = r
-            calrefresh.value = (new Date()).toString()
         }
     )
+    DefaultService.apiCallListApiCallListGet(props.participant_study_id).then(
+        r => {
+             past_call_list.value = r
+        }
+)
 }
 function cancelCall(c:ScheduledCall){
     let permission = confirm("Are you sure you want to cancel this call?")

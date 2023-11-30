@@ -8,7 +8,7 @@ import os, logging
 from starlette.websockets import WebSocketDisconnect
 from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 from call_state import CallState, wss_url
-from database import engine, CallLog, ScheduledCall, Participant
+from database import engine, CallLog, ScheduledCall, Participant, Job
 import secrets
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.exc import NoResultFound
@@ -23,6 +23,7 @@ from starlette.responses import FileResponse
 import phonenumbers
 import subprocess
 import re
+from parse_atq import parse_atq
 
 #region authentication
 from starlette.config import Config
@@ -59,7 +60,6 @@ config = Config(".env")
 
 #region Twilio Logic
 call_dict:dict[str,CallState] = {}
-phonebot_lock = asyncio.Lock()
 
 @app.route('/make-call', methods=['POST'])
 async def make_call(request):
@@ -68,20 +68,22 @@ async def make_call(request):
     return Response('OK', media_type='text/plain', background=task)
 
 async def begin_stream_conversation(number, previous_rejects):
-    await phonebot_lock.acquire()
-    call =  CallState.outbound_call(number, previous_rejects)
+    call =  await CallState.outbound_call(number, previous_rejects)
     call_dict[call.call_sid] = call
 
 @app.route('/stream-conversation-receive', methods=['POST',])
 async def stream_conversation_receive(request):
-    await phonebot_lock.acquire()
+    from call_state import phonebot_lock
     form = await request.form()
-    call_sid = form['CallSid']
-    call_dict[call_sid] = CallState.inbound_call(form)
     vr = VoiceResponse()
-    connect = Connect()
-    connect.stream(url=f'{wss_url}/stream-conversation-socket')
-    vr.append(connect)
+    if not phonebot_lock.locked():
+        call_sid = form['CallSid']
+        call_dict[call_sid] = await CallState.inbound_call(form)
+        connect = Connect()
+        connect.stream(url=f'{wss_url}/stream-conversation-socket')
+        vr.append(connect)
+    else:
+        vr.reject(reason='busy')
     return Response(vr.__str__(), media_type='application/xml')
 
 @app.websocket_route('/stream-conversation-socket')
@@ -127,7 +129,7 @@ async def stream_conversation_socket(websocket):
     except EndCall:
         print('call ended')
     finally:
-        await call_dict[call_sid].after_call()
+        await call_dict[call_sid].try_end()
         call_dict.pop(call_sid)
 
 @app.post('/call-status')
@@ -223,7 +225,7 @@ async def cancel_schedule_calls(phone_number: str):
         for call in results:
             if call.time > datetime.now():
                 try:
-                    call.id
+                    jobid = call.id
                     os.system(f'at -r {jobid}')
                 except Exception as e:
                     print(e)
@@ -237,6 +239,10 @@ async def list_schedule_calls(phone_number: str) -> list[ScheduledCall]:
         statement = select(ScheduledCall).where(ScheduledCall.phone_number == phone_number).where(ScheduledCall.time > datetime.now()).order_by(ScheduledCall.time)
         results = s.exec(statement)
         return results.all()
+
+@app.get('/entire-schedule',dependencies=[Depends(get_current_username)])
+async def entire_schedule() -> list[Job]:
+    return await parse_atq()
 
 
 @app.post('/add-participant',dependencies=[Depends(get_current_username)])
@@ -318,6 +324,10 @@ class AuthStaticFiles(StaticFiles):
     def __init__(self, *args, **kwargs) -> None:
 
         super().__init__(*args, **kwargs)
+
+    def is_not_modified(self, response_headers, request_headers):
+        # your own cache rules goes here...
+        return False
 
     async def __call__(self, scope, receive, send) -> None:
 

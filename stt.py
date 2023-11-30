@@ -2,7 +2,7 @@ from starlette.responses import PlainTextResponse
 from starlette.requests import Request
 from starlette.applications import Starlette
 from starlette.routing import Route
-from transformers import WhisperProcessor, WhisperForConditionalGeneration
+from transformers import WhisperProcessor, WhisperForConditionalGeneration, WhisperTokenizer
 import numpy as np
 import os
 import wave
@@ -12,6 +12,9 @@ stt_model_dir = os.path.join(model_directory, 'whisper-large-v2')
 
 processor = WhisperProcessor.from_pretrained(stt_model_dir)
 model = WhisperForConditionalGeneration.from_pretrained(stt_model_dir).to(device='cuda:1').eval()
+tokenizer = WhisperTokenizer.from_pretrained(stt_model_dir)
+stopword_prompt_ids = tokenizer.get_prompt_ids("Say yes, no, or continue to move on. Are you ready?", return_tensors="pt").to(device='cuda:1')
+
 model.config.forced_decoder_ids = processor.get_decoder_prompt_ids(language="english", task="transcribe")
 app = Starlette()
 
@@ -24,9 +27,17 @@ async def process_array(request):
     print('stt time', time.time()-start_time)
     return PlainTextResponse(transcription)
 
-def transcribe(audio):
+@app.route('/process-stopword', methods=['POST'])
+async def process_array(request):
+    start_time = time.time()
+    audio = (np.frombuffer(await request.body(), dtype='<i2') / 32768).astype(np.float32)
+    transcription = transcribe(audio) 
+    print('stopword time', time.time()-start_time)
+    return PlainTextResponse(transcription)
+
+def transcribe(audio, prompt=None):
     input_features = processor(audio, sampling_rate=16000, return_tensors="pt").input_features.to(device='cuda:1')
-    predicted_ids = model.generate(input_features)[0]
+    predicted_ids = model.generate(input_features, prompt_ids=prompt)[0]
     transcription = processor.decode(predicted_ids, skip_special_tokens=True)
     return transcription
 

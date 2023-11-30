@@ -1,7 +1,7 @@
 import os 
 dir_path = os.path.dirname(os.path.realpath(__file__))
-public_url = "https://phonebot.rxinformatics.net"
-wss_url = "wss://phonebot.rxinformatics.net"
+public_url = "https://phonebot.rxinformatics.net:8443"
+wss_url = "wss://phonebot.rxinformatics.net:8443"
 tts_url = "http://localhost:5001"
 stt_url = "http://localhost:5002"
 llm_url = "http://localhost:5003"

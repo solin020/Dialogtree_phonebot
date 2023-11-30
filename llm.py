@@ -22,7 +22,7 @@ async def process_array(request):
     speaker, utterance = history[-1]
     if speaker == 'USER':
         response = await exllama_interact.converse(utterance)
-        response = re.sub(' {2,}', ' ', regex.sub(r'[^\p{Latin}]', ' ', re.sub('\*.+\*', '', response)))
+        response = re.sub(' {2,}', ' ', re.sub('\*.+\*', '', response))
         print('llm_time', time.time() - start_time)
         return PlainTextResponse(response)
 

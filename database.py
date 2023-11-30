@@ -21,6 +21,12 @@ engine = create_engine(url_object)
 
 
 
+@dataclass
+class Job(SQLModel, table=True):
+    job_id: str = Field(primary_key=True)
+    phone_number: str
+    rejects: int
+    timestamp: datetime
 
 
 @dataclass

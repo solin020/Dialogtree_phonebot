@@ -12,7 +12,7 @@ auth_token = config('AUTHTOKEN')
 client = Client(account_sid, auth_token)
 import random
 from datetime import datetime, timedelta, timezone
-from database import engine, CallLog, Participant
+from database import engine, CallLog, Participant, ScheduledCall
 from sqlmodel import Session, select
 from sqlalchemy.orm.exc import NoResultFound
 from config import public_url, wss_url, llm_url, grading_url, syntax_url
@@ -26,6 +26,24 @@ STOPWORD_LIST =  ["yes", "sure", "yep", "yeah", "go", "ahead", "next", "ready", 
 NEGATIVE_STOPWORD_LIST =  ["no", "nope", "not", "isn't", "don't", "nuh", "aren't", "aint", "wait", "yet", "bit"]
 
 MEMORY_WORDS = os.listdir('soundfiles')
+phonebot_lock = asyncio.Lock()
+topics = ["your favorite story",
+"your favorite trip",
+"your favorite food",
+"your family",
+"your friends",
+"the most interesting thing that's ever happened to you",
+"your favorite movie",
+"your hometown",
+"your favorite hobby",
+"your favorite game",
+"the last dream you can remember",
+"your favorite childhood memory",
+"what you love most",
+"the weather today",
+"how you manage stress",]
+
+
 
 
 class PhoneConversationController(ConversationController):
@@ -81,7 +99,6 @@ class CallState:
     call_log: CallLog
     controller: ConversationController
     grading_tasks: list[asyncio.Task]
-    script: Optional[asyncio.Task]
     previous_calls: int
     uuid: str
 
@@ -94,7 +111,7 @@ class CallState:
                 statement = select(Participant).where(Participant.phone_number == phone_number)
                 result = s.exec(statement).one()
                 self.participant_study_id = result.participant_study_id
-                statement = select(CallLog).where(CallLog.phone_number == phone_number)
+                statement = select(CallLog).where(CallLog.phone_number == phone_number and CallLog.rejected=="completed")
                 result = list(s.exec(statement).all())
                 self.previous_calls = len(result)
         except:
@@ -109,44 +126,55 @@ class CallState:
         )
         self.controller = PhoneConversationController()
         self.grading_tasks = []
-        self.script = None
-        self.answered = asyncio.Event()
+        self.end_event = asyncio.Event()
         self.uuid = uuid.uuid4().hex
 
-
-    async def after_call(self):
-        from app import phonebot_lock
-        client.calls(self.call_sid).update(status='completed')
-        try:
-            print(f'call {self.call_sid} completed')
-            await exllama_interact.delete_session(self.uuid)
-            for task in self.grading_tasks:
-                try:
-                    await task
-                except Exception as e:
-                    print(e)
-            outbound_pcm_file = NamedTemporaryFile(suffix='.pcm', delete=False).name
-            internal_pcm_file = NamedTemporaryFile(suffix='.pcm', delete=False).name
-            async with aiofiles.open(internal_pcm_file, 'wb+') as f:
-                await f.write(self.controller.participant_track)
-            async with aiofiles.open(outbound_pcm_file, 'wb+') as f:
-                await f.write(self.controller.outbound_bytes)
-            proc = await asyncio.create_subprocess_shell(
-                (f'ffmpeg -ar 8k -f mulaw -i {outbound_pcm_file} -ar 16k -f s16le -i {internal_pcm_file}'
-                ' -filter_complex "[0:a][1:a]join=inputs=2:channel_layout=stereo[a]" -map "[a]" '
-                f'recordings/bot_{self.call_sid}.mp3'
-                f'&& rm {internal_pcm_file} {outbound_pcm_file}'),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            print(await proc.communicate(), flush=True)
-            if self.call_log.previous_rejects < 2 and self.call_log.rejected !='completed':
-                await self.reschedule_call(self.call_log.previous_rejects+1)
-            with Session(engine) as s:
-                s.add(self.call_log)
-                s.commit()
-        finally:
+    async def try_end(self):
+        if phonebot_lock.locked():
             phonebot_lock.release()
+        self.end_event.set()
+
+    async def time_end(self):
+        await asyncio.sleep(600)
+        if phonebot_lock.locked():
+            phonebot_lock.release()
+        self.end_event.set()
+
+    async def after_call(self, script):
+        timer =asyncio.ensure_future(self.time_end())
+        script = asyncio.ensure_future(script)
+        await self.end_event.wait()
+        script.cancel()
+        timer.cancel()
+        client.calls(self.call_sid).update(status='completed')
+        print(f'call {self.call_sid} completed')
+        await exllama_interact.delete_session(self.uuid)
+        #Cancel any scheduled calls within one hour of complete call
+        for task in self.grading_tasks:
+            try:
+                await task
+            except Exception as e:
+                print(e)
+        outbound_pcm_file = NamedTemporaryFile(suffix='.pcm', delete=False).name
+        internal_pcm_file = NamedTemporaryFile(suffix='.pcm', delete=False).name
+        async with aiofiles.open(internal_pcm_file, 'wb+') as f:
+            await f.write(self.controller.participant_track)
+        async with aiofiles.open(outbound_pcm_file, 'wb+') as f:
+            await f.write(self.controller.outbound_bytes)
+        proc = await asyncio.create_subprocess_shell(
+            (f'ffmpeg -ar 8k -f mulaw -i {outbound_pcm_file} -ar 16k -f s16le -i {internal_pcm_file}'
+            ' -filter_complex "[0:a][1:a]join=inputs=2:channel_layout=stereo[a]" -map "[a]" '
+            f'recordings/bot_{self.call_sid}.mp3'
+            f'&& rm {internal_pcm_file} {outbound_pcm_file}'),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        print(await proc.communicate(), flush=True)
+        if self.call_log.previous_rejects < 2 and self.call_log.rejected !='completed':
+            await self.reschedule_call(self.call_log.previous_rejects+1)
+        with Session(engine) as s:
+            s.add(self.call_log)
+            s.commit()
 
     async def handle_streams(self, frame, websocket, stream_sid):
         await self.controller.receive_inbound(base64.b64decode(frame['media']['payload']))
@@ -173,29 +201,43 @@ class CallState:
 
 
     @staticmethod
-    def outbound_call(phone_number: str, previous_rejects:int):
+    async def outbound_call(phone_number: str, previous_rejects:int):
+        await phonebot_lock.acquire()
         call = client.calls.create(
             to='='+phone_number,
             from_='+16126826292',
             twiml = CallState.begin_conversation().__str__(),
-            status_callback_event=['answered',],
-            status_callback_method='POST',
-            status_callback = f"{public_url}/call-status",
         )
         if call.sid:
             self = CallState(phone_number=phone_number,call_sid=call.sid,previous_rejects=previous_rejects)
-            self.script = asyncio.ensure_future(self.participant_initiated_script())
+            script = self.participant_initiated_script()
+            asyncio.ensure_future(self.after_call(script))
             return self
         else:
             raise Exception("Twilio failure")
 
     @staticmethod
-    def inbound_call(form):
+    async def inbound_call(form):
+        await phonebot_lock.acquire()
         call_sid = form['CallSid']
         phone_number = form['From']
         self = CallState(call_sid=call_sid, phone_number=phone_number, previous_rejects=999)
-        self.answered.set()
-        self.script = asyncio.ensure_future(self.bot_initiated_script())
+        script = self.bot_initiated_script()
+        asyncio.ensure_future(self.after_call(script))
+        with Session(engine) as s:
+            statement = select(ScheduledCall).where(
+                ScheduledCall.phone_number == phone_number
+            )
+            results = list(s.exec(statement))
+            for r in results:
+                if (r.time - datetime.now()) < timedelta(hours=1) and r.time > datetime.now():
+                    print(f'cancelling next call {r.id}')
+                    try:
+                        os.system(f'at -r {r.id}')
+                    except Exception as e:
+                        print(e)
+                    s.delete(r)
+            s.commit()
         return self
     
     async def say(self, quote:str, **kwargs):
@@ -264,16 +306,13 @@ class CallState:
                 print('memory grade 2', self.call_log.memory_grade_2)
     
     async def reschedule_call(self, rejects:int):
+        new_time = datetime.now() + timedelta(minutes=10)
         import app
-        with Session(engine) as s:
-            new_time = datetime.now().astimezone(timezone.utc) + timedelta(minutes=10)
-            t = app.ScheduledCall(id=self.phone_number+new_time.isoformat(), 
-                                time=new_time, 
-                                phone_number=self.phone_number,
-                                rejects=rejects)
-            await app.scheduled_call_task(t.time, t.phone_number, rejects)
-            s.add(t)
-            s.commit()
+        t = app.ScheduledCall(id=self.phone_number+new_time.isoformat(), 
+                            time=new_time, 
+                            phone_number=self.phone_number,
+                            rejects=rejects)
+        await app.scheduled_call_task(t.time, t.phone_number, rejects)
 
 
 
@@ -309,15 +348,16 @@ class CallState:
         await self.ask_permission("Are you ready to have a chat?")
         self.call_log.rejected = "accepted"
         #free conversation
-        init_question = ("Okay. First, I would like to ask you how you are feeling. "
-                                "For example, have there been any changes in how you feel in the last few hours?")
+        init_question = ("Okay. First, tell me how you've been doing in the last few hours?")
         await self.ask(init_question, 
                                 forward_to_llm=True,
                                 minimum_turn_time=5,
                                 await_silence=True,
                                 silence_window=2, stopword_list=['continue'])
-        await (self.ask(await self.get_response(), await_silence=True, minimum_turn_time=5, stopword_list=['continue']))
-        topic = random.choice(["your favorite book", "your most memorable trip", "a memorable event in your life"])
+        await self.ask("Thank you for sharing. Is there anything else you want to share about your day so far?", await_silence=True, minimum_turn_time=5, stopword_list=['continue'], wait_time=30)
+        random.seed(hash(self.phone_number))
+        topic_array = random.sample(topics, k=len(topics))
+        topic = topics[self.previous_calls % len(topics)]
         topic_question = (f"Thank you for sharing. Now, I would like to ask you to tell me as much as you are able about {topic}. "
                                 "Feel free to take your time in answering.")
         await self.ask(topic_question,
@@ -325,9 +365,10 @@ class CallState:
                                 minimum_turn_time=5,
                                 await_silence=True,
                                 silence_window=2,
-                                stopword_list=['continue'])
-        await (self.ask(await self.get_response(), await_silence=True, minimum_turn_time=5, stopword_list=['continue']))
-        await (self.ask(await self.get_response(), await_silence=True, minimum_turn_time=5, stopword_list=['continue']))
+                                stopword_list=['continue'],
+                                wait_time=30)
+        await self.ask(await self.get_response(), await_silence=True, minimum_turn_time=5, stopword_list=['continue'], wait_time=30)
+        await self.ask(await self.get_response(), await_silence=True, minimum_turn_time=5, stopword_list=['continue'], wait_time=30)
         self.grading_tasks.append(asyncio.ensure_future(self.perplexity_grade()))
         self.grading_tasks.append(asyncio.ensure_future(self.syntax_grade()))
 
@@ -341,41 +382,42 @@ class CallState:
         self.call_log.memory_exercise_words = [w.split('.')[0] for w in word_files]
         for w in word_files:
             await self.controller.play_file(f'soundfiles/{w}', final_pause=1.0, initial_pause=1.0)
-        self.call_log.memory_exercise_reply = await self.ask("Now repeat as many of these words as you remember and say continue when you are done. Please begin.",
-                               wait_time=30,  stopword_list=['continue'])
+        self.call_log.memory_exercise_reply = await self.ask("Now repeat as many of these words as you remember and say continue when you are done. Please begin after the beep.",
+                               file="sounds/beep.wav", wait_time=30,  stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.memory_grade()))
 
         #F initial word list task
         await self.say("Thank you. Now, I will give you a letter of the alphabet.")
         await self.say("I am going to ask you to name words that begin with that letter, as fast as you are able.")
         await self.say("For example, if I give you the letter ess, as in sam, you may say soft, smile, and so on.")
-        await self.say("Do not use the same word with a different ending such as smiling, or smiles.")
+        await self.say("Please don't use the same word with different endings, like smiling, smiled, and smiles.")
         await self.ask_permission("Are you ready?")
         await self.say("Okay. Your letter is the letter ell, as in laugh, or ladle.")
         await self.say("Please name all the words that you are able to think of that begin with the letter ell.")
-        self.call_log.l_reply = await self.ask("You have thirty seconds. Please begin.", wait_time=30, stopword_list=['continue'])
+        self.call_log.l_reply = await self.ask("You have thirty seconds. Please begin after the beep.", file="sounds/beep.wav", wait_time=30, stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.l_grade()))
 
         #animal naming word list task
-        await self.say("The thirty seconds are done. Now, I will give you a category.")
+        await self.say("Thank you. Now, I will give you a category.")
         await self.say("I am going to ask you to name as fast as you are able all the things that belong to that category.")
         await self.say("For example, if I give you the category of articles of clothing, you may say shirt, or jacket, or pants, and so on.")
         await self.ask_permission("Are you ready?")
         await self.say("Okay. Your category is animals.") 
         await self.say("Begin naming as many animals as you are able to think of.")
-        self.call_log.animal_reply = await self.ask("You have thirty seconds. Please begin.", wait_time=30, stopword_list=['continue'])
+        self.call_log.animal_reply = await self.ask("You have thirty seconds. Please begin after the beep.", file="sounds/beep.wav", wait_time=30, stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.animal_grade()))
 
         #word list recall round 2
-        await self.say("The thirty seconds are done. We are almost finished. Just one last thing.")
+        await self.say("Thank you. The thirty seconds are done. We are almost finished. Just one last thing.")
         await self.say("A few minutes ago I read a list of six words.")
         await self.say("Please try to recall as many of these words as you are able and say them aloud as you remember them.")
-        self.call_log.memory_exercise_reply_2 = await self.ask("You have thirty seconds. Please begin.", wait_time=30, stopword_list=['continue'])
+        self.call_log.memory_exercise_reply_2 = await self.ask("You have thirty seconds. Please begin after the beep.", file="sounds/beep.wav", wait_time=30, stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.memory_grade_2()))
         self.call_log.rejected = "completed"
         #goodbye
         await self.say("Thank you. This concludes our session.")
         await self.ask("Until next time. Goodbye.", wait_time=0.5)
+        await self.try_end()
 
 
     def participant_initiated_script(self):
@@ -393,14 +435,16 @@ class CallState:
         await self.ask_permission("Are you ready to have a chat?")
         self.call_log.rejected = "accepted"
         #free conversation
-        init_question = ("Okay. First, I would like to ask you how you are feeling. Any changes in how you feel in the last few hours?")
+        init_question = ("Okay. First, tell me how you've been doing in the last few hours.")
         await self.ask(init_question, 
                                 forward_to_llm=True,
                                 minimum_turn_time=5,
                                 await_silence=True,
-                                silence_window=2, stopword_list=['continue'])
-        await (self.ask(await self.get_response(), await_silence=True, minimum_turn_time=5, stopword_list=['continue']))
-        topic = random.choice(["your favorite book", "your most memorable trip", "a memorable event in your life"])
+                                silence_window=2, stopword_list=['continue'], wait_time=30)
+        await self.ask("Thank you for sharing. Is there anything else you want to share about your day so far?", await_silence=True, minimum_turn_time=5, stopword_list=['continue'], wait_time=30)
+        random.seed(hash(self.phone_number))
+        topic_array = random.sample(topics, k=len(topics))
+        topic = topics[self.previous_calls % len(topics)]
         topic_question = (f"Thank you for sharing. Now, I would like to ask you to tell me as much as you are able about {topic}. "
                                 "Feel free to take your time in answering.")
         await self.ask(topic_question,
@@ -408,9 +452,9 @@ class CallState:
                                 minimum_turn_time=5,
                                 await_silence=True,
                                 silence_window=2,
-                                stopword_list=['continue'])
-        await (self.ask(await self.get_response(), await_silence=True, minimum_turn_time=5, stopword_list=['continue']))
-        await (self.ask(await self.get_response(), await_silence=True, minimum_turn_time=5, stopword_list=['continue']))
+                                stopword_list=['continue'], wait_time=30)
+        await self.ask(await self.get_response(), await_silence=True, minimum_turn_time=5, stopword_list=['continue'], wait_time=30)
+        await self.ask(await self.get_response(), await_silence=True, minimum_turn_time=5, stopword_list=['continue'], wait_time=30)
         self.grading_tasks.append(asyncio.ensure_future(self.perplexity_grade()))
         self.grading_tasks.append(asyncio.ensure_future(self.syntax_grade()))
 
@@ -421,27 +465,28 @@ class CallState:
         self.call_log.memory_exercise_words = [w.split('.')[0] for w in word_files]
         for w in word_files:
             await self.controller.play_file(f'soundfiles/{w}', final_pause=1.0, initial_pause=0.5)
-        self.call_log.memory_exercise_reply = await self.ask("Please begin and say continue when you are done.",
+        self.call_log.memory_exercise_reply = await self.ask("Please begin after the beep and say continue when you are done.", file="sounds/beep.wav",
                                wait_time=30,  stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.memory_grade()))
 
         #F initial word list task
 
         await self.ask_permission("Thank you. Now, I will give you a letter of the alphabet. Are you ready?")
-        self.call_log.l_reply = await self.ask("Okay. Your letter is the letter L, as in love. You have thirty seconds. Please begin.", wait_time=30, stopword_list=['continue'])
+        self.call_log.l_reply = await self.ask("Okay. Your letter is the letter L, as in love. You have thirty seconds. Please begin after the beep.", file="sounds/beep.wav", wait_time=30, stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.l_grade()))
 
         #animal naming word list task
-        await self.ask_permission("Please stop. Now, I will give you a category. Are you ready?")
-        self.call_log.animal_reply = await self.ask("Okay. Your category is animals. You have thirty seconds.", wait_time=30, stopword_list=['continue'])
+        await self.ask_permission("Thank you. Now, I will give you a category. Are you ready?")
+        self.call_log.animal_reply = await self.ask("Okay, your category is animals, you have thirty seconds. Please begin after the beep.", file="sounds/beep.wav", wait_time=30, stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.animal_grade()))
 
         #word list recall round 2
-        self.call_log.memory_exercise_reply_2 = await self.ask("Please stop. Almost done. Try to recall as many of the six words I asked you to remember before. You have thirty seconds. Please begin.", wait_time=30, stopword_list=['continue'])
+        self.call_log.memory_exercise_reply_2 = await self.ask("Thank you. Almost done. Try to recall as many of the six words I asked you to remember before. You have thirty seconds. Please begin after the beep.", file="sounds/beep.wav", wait_time=30, stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.memory_grade_2()))
         self.call_log.rejected = "completed"
         #goodbye
         await self.ask("Thank you. This concludes our session. Until next time. Goodbye.", wait_time=0.5)
+        await self.try_end()
 
     async def ask_permission(self, quote):
         call_permission = await self.ask(quote, stopword_list=STOPWORD_LIST+NEGATIVE_STOPWORD_LIST, wait_time=30, return_stopword=True)

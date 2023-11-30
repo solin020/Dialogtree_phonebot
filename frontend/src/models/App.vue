@@ -4,6 +4,7 @@
         <VTabs v-model="tab">
             <VTab value="viewparticipants">View participant records and schedule phonecalls</VTab>
             <VTab value="addparticipant">Add a new participant</VTab>
+            <VTab value="fullschedule">View all scheduled calls</VTab>
         </VTabs>
         </v-app-bar>
         <v-main>
@@ -28,6 +29,11 @@
                 <ScheduleCalls  @schedulecalls="(s,e,m,a,ev,mm,am,evm) => addParticipant(s,e,m,a,ev,mm,am,evm)">Add Participant</ScheduleCalls>
                 </VCard>
             </VWindowItem>
+            <VWindowItem key="fullschedule" value="fullschedule" :transition="false" :reverse-transition="false">
+                <VCard>
+                    <AllScheduledCalls></AllScheduledCalls>
+                </VCard>
+            </VWindowItem>
         </VWindow>
         </v-main>
     </v-app>
@@ -38,6 +44,7 @@ import Participant from './Participant.vue'
 import {DefaultService, type Participant as ParticipantType} from '../client';
 import {ref, type Ref} from 'vue'
 import ScheduleCalls from './ScheduleCalls.vue'
+import AllScheduledCalls from './AllScheduledCalls.vue';
 
 let tab: Ref<String|null> = ref(null);
 let participants: Ref<ParticipantType[]> = ref([])
