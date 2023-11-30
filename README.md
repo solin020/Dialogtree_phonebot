@@ -1,14 +1,18 @@
+#Microservices
 ANNA consists of the following microservices
--text to speech, in tts.py. 
+##phonebot_tts
+This is the text to speech server, located in tts.py. 
 This service can be started by running "systemctl start service phonebot_tts"
 
--speech to text, in stt.py
+##phonebot_stt
+This is the speech to text server, located in stt.py
 This service can be started by running "systemctl start service phonebot_stt"
 
--a large language dialog model which can be queried to respond to a turn of a conversation, in llm.py
+##phonebot_llm
+This is the large language model conversation partner server, located in llm.py
 This service can be started by running "systemctl start service phonebot_llm"
 
--a control server, in app.py
+##phonebot
 This service can be started by running "systemctl start service phonebot_gateway".
 It makes use of call_state.py. call_state.py contains the class CallState, whose objects
 each control one ongoing phonecall. app.py can spawn multiple of these in response to simultaneous phonecalls, allowing ANNA
@@ -27,10 +31,53 @@ that prevents ANNA from moving on too early, overriding the other listening mode
 ANNA will then ask the stt service for a transcript of what the patient has said. self.get_response() gives a history of ANNA's
 conversation to the llm service to get a conversationally appropriate reply to say to the patient.
 
--a postgres database
-database.py contains code for storing ANNA's records in a postgres database.
+##psql
 
--a syntax grader, located in the docker image clas:latest
+ANNA uses a postgres database to store its data.
+Full setup is not included with ANNA, end users are expected to provide their own postgres database.
+End users can specify where the database is by the following .env file parameters
+DBHOST: hostname where the postgres server is running
+DBUSER: username for ANNA to use when logged in to postgres (I recommend 'anna')
+DBNAME: name of the database ANNA stores its data in (I also recommend 'anna')
+DBPASSWORD: password for ANNA's user
 
--an llm and memory test grader, located in the docker image coherence:latest
+The end user will need to set up this in advance, with commands such as
+
+    CREATE DATABASE $DBNAME;
+    CREATE USER $DBUSER WITH PASSWORD '$DBPASSWORD';
+    GRANT ALL PRIVILEGES ON DATABASE $DBNAME TO USER $DBUSER;
+
+with the appropriate substitutions provided.
+
+database.py contains code for storing ANNA's records in a postgres database. 
+Running
+    $python database.py
+will initialize the tables ANNA needs. This only needs to be run once, on install.
+
+##clas
+This microservice grades syntax. It is in the docker image clas:latest
+
+##coherence
+This microservice grades large language model coherence and also grades the memory tests. It is located in the docker image coherence:latest
+
+
+
+
+#Setting up the .env file
+The .env file must be written by the end user. It contains sensitive information that is local to the installation.
+The following parameters must be provided:
+
+USERNAME: the username required to log into ANNA's web portal
+PASSWORD: the password required to log into ANNA's web portal
+
+ACCOUNTSID: the twilio accountsid for the twilio number linked to ANNA
+AUTHTOKEN: the twilio authtoken for the twilio number linked to ANNA
+
+DBHOST: hostname where the postgres server is running
+DBUSER: username for ANNA to use when logged in to postgres (I recommend 'anna')
+DBNAME: name of the database ANNA stores its data in (I also recommend 'anna')
+DBPASSWORD: password for ANNA's user
+
+#setting up the frontend
+running ./generate_client.sh must be run to reinitialize the typescript client the frontend uses if you ever edit app.py
 
