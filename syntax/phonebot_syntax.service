@@ -1,0 +1,13 @@
+[Service]
+Description=Phonebot Syntax
+After=network.target
+StartLimitIntervalSec=0[Service]
+Type=simple
+Restart=always
+RestartSec=5
+User=root
+WorkingDirectory=/home/solin020/phonebot
+ExecStart=/home/solin020/phonebot/syntax_env/bin/python -m uvicorn --host 0.0.0.0 --port 5005 phonebot.syntax.app:app
+
+[Install]
+WantedBy=multi-user.target

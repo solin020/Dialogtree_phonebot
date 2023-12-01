@@ -1,6 +1,0 @@
-version: "3.9"
-services:
-  syntax:
-    restart: always
-    image: phonebot_clas:latest
-    ports: ["5005:8000"]

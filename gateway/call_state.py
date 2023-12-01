@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 from sqlalchemy.orm.exc import NoResultFound
 from ..config import public_url, wss_url, llm_url, grading_url, syntax_url,\
     account_sid, auth_token,\
-     word_recordings_directory, call_recordings_directory
+     word_recordings_directory, call_recordings_directory, sounds_directory
 from dataclasses import dataclass
 from typing import Optional
 from tempfile import NamedTemporaryFile
@@ -382,7 +382,7 @@ class CallState:
         for w in word_files:
             await self.controller.play_file(os.path.join(word_recordings_directory,w), final_pause=1.0, initial_pause=1.0)
         self.call_log.memory_exercise_reply = await self.ask("Now repeat as many of these words as you remember and say continue when you are done. Please begin after the beep.",
-                               file=os.path.join(sound_recordings_directory,"beep.wav"), wait_time=30,  stopword_list=['continue'])
+                               file=os.path.join(sounds_directory,"beep.wav"), wait_time=30,  stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.memory_grade()))
 
         #F initial word list task
@@ -394,7 +394,7 @@ class CallState:
         await self.say("Okay. Your letter is the letter ell, as in laugh, or ladle.")
         await self.say("Please name all the words that you are able to think of that begin with the letter ell.")
         self.call_log.l_reply = await self.ask("You have thirty seconds. Please begin after the beep.", 
-            file=os.path.join(sound_recordings_directory,"beep.wav"), 
+            file=os.path.join(sounds_directory,"beep.wav"), 
             wait_time=30, 
             stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.l_grade()))
@@ -407,7 +407,7 @@ class CallState:
         await self.say("Okay. Your category is animals.") 
         await self.say("Begin naming as many animals as you are able to think of.")
         self.call_log.animal_reply = await self.ask("You have thirty seconds. Please begin after the beep.", 
-            file=os.path.join(sound_recordings_directory,"beep.wav"), 
+            file=os.path.join(sounds_directory,"beep.wav"), 
             wait_time=30, 
             stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.animal_grade()))
@@ -417,7 +417,7 @@ class CallState:
         await self.say("A few minutes ago I read a list of six words.")
         await self.say("Please try to recall as many of these words as you are able and say them aloud as you remember them.")
         self.call_log.memory_exercise_reply_2 = await self.ask("You have thirty seconds. Please begin after the beep.", 
-            file=os.path.join(sound_recordings_directory,"beep.wav"), 
+            file=os.path.join(sounds_directory,"beep.wav"), 
             wait_time=30, 
             stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.memory_grade_2()))
@@ -474,7 +474,7 @@ class CallState:
         for w in word_files:
             await self.controller.play_file(os.path.join(word_recordings_directory,w), final_pause=1.0, initial_pause=0.5)
         self.call_log.memory_exercise_reply = await self.ask("Please begin after the beep and say continue when you are done.", 
-            file=os.path.join(sound_recordings_directory,"beep.wav"),
+            file=os.path.join(sounds_directory,"beep.wav"),
             wait_time=30,  
             stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.memory_grade()))
@@ -483,7 +483,7 @@ class CallState:
 
         await self.ask_permission("Thank you. Now, I will give you a letter of the alphabet. Are you ready?")
         self.call_log.l_reply = await self.ask("Okay. Your letter is the letter L, as in love. You have thirty seconds. Please begin after the beep.", 
-            file=os.path.join(sound_recordings_directory,"beep.wav"), 
+            file=os.path.join(sounds_directory,"beep.wav"), 
             wait_time=30, 
             stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.l_grade()))
@@ -491,14 +491,14 @@ class CallState:
         #animal naming word list task
         await self.ask_permission("Thank you. Now, I will give you a category. Are you ready?")
         self.call_log.animal_reply = await self.ask("Okay, your category is animals, you have thirty seconds. Please begin after the beep.", 
-            file=os.path.join(sound_recordings_directory,"beep.wav"), 
+            file=os.path.join(sounds_directory,"beep.wav"), 
             wait_time=30, 
             stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.animal_grade()))
 
         #word list recall round 2
         self.call_log.memory_exercise_reply_2 = await self.ask("Thank you. Almost done. Try to recall as many of the six words I asked you to remember before. You have thirty seconds. Please begin after the beep.", 
-            file=os.path.join(sound_recordings_directory,"beep.wav"), 
+            file=os.path.join(sounds_directory,"beep.wav"), 
             wait_time=30, 
             stopword_list=['continue'])
         self.grading_tasks.append(asyncio.ensure_future(self.memory_grade_2()))
