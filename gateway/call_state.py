@@ -268,8 +268,7 @@ class CallState:
                            sg = await resp.json()
                            syntax_grade.append(sg)
             self.call_log.syntax_grade = syntax_grade
-            print(self.call_log.syntax_grade)
-            print('syntax graded')
+            print("syntax grade", self.call_log.syntax_grade)
 
     async def memory_grade(self):
         async with aiohttp.ClientSession() as session:
@@ -280,7 +279,7 @@ class CallState:
                     print('reply 1', self.call_log.memory_exercise_reply)
                     print('words', self.call_log.memory_exercise_words)
                     self.call_log.memory_grade = await resp.json()
-                    print(self.memory_grade)
+                    print("memory grade", self.memory_grade)
     
     async def l_grade(self):
         async with aiohttp.ClientSession() as session:
@@ -306,7 +305,7 @@ class CallState:
     
     async def reschedule_call(self, rejects:int):
         new_time = datetime.now() + timedelta(minutes=10)
-        import app
+        from . import app
         t = app.ScheduledCall(id=self.phone_number+new_time.isoformat(), 
                             time=new_time, 
                             phone_number=self.phone_number,
