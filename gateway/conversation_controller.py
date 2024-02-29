@@ -5,7 +5,7 @@ import numpy as np
 import wave
 import os
 import uuid
-from ..config import tts_url, stt_url, llm_url
+from ..config import tts_url, stt_url
 
 vad = webrtcvad.Vad()
 vad.set_mode(1)
@@ -158,9 +158,10 @@ class ConversationController(ABC):
         await self.pause(final_pause)
         return len(self.outbound_bytes) 
 
-    async def ask(self, question, file=None, await_silence=False, stopword_list=None, wait_time=30, minimum_turn_time=3, silence_window=1, 
+    async def ask(self, question, file=None, await_silence=True, stopword_list=None, wait_time=30, minimum_turn_time=3, silence_window=1, 
             final_transcribe=True, final_pause=0.5,return_stopword=False):
         assert (await_silence or stopword_list or wait_time), "The bot must be listening for something"
+        print('gothere2')
         end_speech_pos = await self.say(question, final_pause=final_pause)
         if file is not None:
             end_speech_pos = await self.play_file(file)

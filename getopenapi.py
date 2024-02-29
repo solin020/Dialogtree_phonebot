@@ -1,5 +1,5 @@
 from fastapi.openapi.utils import get_openapi
-from gatway.app import app
+from gateway.app import app
 import json
 from config import frontend_directory
 import os

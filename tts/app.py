@@ -6,7 +6,7 @@ import torch
 from io import BytesIO
 import time
 from TTS.utils.synthesizer import Synthesizer
-from ..config import model_directory
+from ..config import model_directory, tts_port
 import os
 
 model_path = os.path.join(model_directory, 'tts_model', 'model_file.pth')
@@ -37,3 +37,7 @@ async def generate(request):
     synthesizer.save_wav(wavs, tempf)
     print('tts_time:', time.time()-start_time)
     return PlainTextResponse(tempf.getvalue())
+
+    
+import uvicorn
+uvicorn.run(app, host='0.0.0.0', port=int(tts_port))
