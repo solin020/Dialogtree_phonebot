@@ -1,0 +1,21 @@
+For each medication present in the input, print out as many of these as you can find:
+the name of the medication
+the dosage of the medication
+the duration it is being taken for
+in what form it needs to be taken
+and the reason it was given.
+If you can't find one of these, print out "nm" after the "=>".
+If you can't find any medications at all, print out "No Medications".
+For example, for the sentence:
+She was started on Trilafon 2 to 4 mg p.o. p.r.n. q.6h. for anxiety.
+You should print:
+medicine=>Trilafon
+dose=>2 to 4 mg
+duration=>nm
+form=>p.o.
+frequency=>p.r.n. q.6h
+reason=>anxiety
+For an input like this one, with no medications in it:
+She was also hyperglycemic on admission which may have contributed to her dehydration.
+You should print:
+No medications

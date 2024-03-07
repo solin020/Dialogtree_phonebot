@@ -1,0 +1,13 @@
+.env
+env
+__pycache__
+call_recordings
+dialogtree_phonebot/gateway/mulaw/target
+dialogtree_phonebot/.env
+models
+sounds
+tacotron_env
+*.wav
+*.pcm
+dialogtree_phonebot/healthmarshall/discharge_instructions
+dialogtree_phonebot/gateway/mulaw/target

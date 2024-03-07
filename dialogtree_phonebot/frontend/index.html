@@ -1,0 +1,74 @@
+<html>
+  <body>
+     <button id="callbutton">Make call</button>
+     <button id="endcall">End call</button>
+  </body>
+  <script>
+    let btn = document.getElementById("callbutton")
+    let endbtn = document.getElementById("endcall")
+    let call_ended = false
+    function endianness(){
+        let uInt32 = new Uint32Array([0x11223344])
+        let uInt8 = new Uint8Array(uInt32.buffer)
+        if(uInt8[0] === 0x44) {
+                return 'le'
+            } else if (uInt8[0] === 0x11) {
+                return 'be'
+            } else {
+                throw new Error("Could not identify endianness!")
+            }
+    }
+    let endian_code = endianness();
+    function startCall(){
+        navigator.mediaDevices.getUserMedia({audio:true}).then(async r =>{
+            let context = new AudioContext()
+            const socket = new WebSocket("wss://openemr.rxinformatics.net/browser-conversation-socket")
+            await context.audioWorklet.addModule("/receive-speaker.js")
+            await context.audioWorklet.addModule("/send-microphone.js")
+            await socket.send(endian_code + " " + context.sampleRate)
+            window.recorder = r
+            let ms = context.createMediaStreamSource(r)
+            let receive_speaker = new AudioWorkletNode(
+                context,
+                "receive-speaker",
+                {
+                  processorOptions: {
+                    someUsefulVariable: context.sampleRate,
+                }},
+            )
+            let send_microphone = new AudioWorkletNode(
+                context,
+                "send-microphone",
+                {
+                  processorOptions: {
+                    someUsefulVariable: context.sampleRate,
+                }},
+            )
+            send_microphone.port.onmessage = ( r => 
+                socket.send(new Blob([r.data.buffer]))
+            )
+            ms.connect(send_microphone)
+            socket.onmessage = (blb => 
+                blb.data.arrayBuffer().then( buf => 
+                receive_speaker.port.postMessage(
+                        new Float32Array(buf)
+                    )
+                )
+            )
+            send_microphone.connect(context.destination)
+            receive_speaker.connect(context.destination)
+            console.log("finished setup")
+            while (!call_ended) {
+                await new Promise(r => setTimeout(r, 1000))
+            }
+            console.log("ended call")
+            socket.close()
+            send_microphone.disconnect()
+            receive_speaker.disconnect()
+            r.getAudioTracks()[0].stop()
+        })
+    }
+    btn.addEventListener("click", startCall)
+    endbtn.addEventListener("click", r => {call_ended = true})
+  </script>
+</html>

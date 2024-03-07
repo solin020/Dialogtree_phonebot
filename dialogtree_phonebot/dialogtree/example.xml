@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dialogtree SYSTEM "/home/solin020/dialogtree/dialogtree.dtd">
+<dialogtree>
+  <branch>
+    <userquestion>
+        Hi! I am your pet purchasing assistant. 
+        Are you interested in purchasing a cat or a dog?
+    </userquestion>
+    <errorprompt>
+        Explain to the user who just replied with this:
+          <response/> 
+
+        to this question:
+          <backprompt/>
+
+        that you only know how to answer questions
+        about advising them about cat or dog purchases and ask them if they want a cat or a dog.
+    </errorprompt>
+    <answerparse>
+        Did the person who answered this:
+          <response/>
+
+        to this question:
+          <backprompt/>
+
+        want a cat, a dog, or something else?
+        If cat, respond "cat". If dog, respond "dog". If anything else, respond "other".
+        Say only one word.
+    </answerparse>
+    <jump answer="cat dog">
+      <![CDATA[
+      context["animal"] = answer
+      if answer == "cat":
+          with open("dialogtree_phonebot/dialogtree/cats.txt") as f:
+             context["breedinfo"] = f.read()
+          return "catbreed"
+      elif answer == "dog":
+          with open("dialogtree_phonebot/dialogtree/dogs.txt") as f:
+              context["breedinfo"] = f.read()
+          return "dogbreed"
+      ]]>
+    </jump>
+  </branch>
+  <state destinationname="catbreed" nextdestination="allergy">
+    You have selected cats.
+  </state>
+  <branch destinationname="allergy">
+    <userquestion>
+        Are you allergic to <context key="animal"/>s?
+    </userquestion>
+    <errorprompt>
+        Explain to the user who just replied with this:
+          <response/>
+
+        to this question:
+          <backprompt/>
+
+        that you would like the answer to the preceding question.
+    </errorprompt>
+    <answerparse>
+        You asked the user this:
+
+        <backprompt/>
+
+        And they replied with this:
+
+        <response/>
+
+        Tell me if the user said they were allergic to <context key="animal"/>s or not? 
+        If yes reply "allergic", if no reply "no", otherwise reply "other". Say only one word.
+    </answerparse>
+    <jump answer="allergic no" nextdestination="indoororoutdoor">
+      <![CDATA[
+      if answer=="allergic":
+          context["allergy"] = answer
+      else:
+          context["allergy"] = "not allergic"
+      ]]>
+    </jump>
+  </branch>
+  <branch destinationname="indoororoutdoor">
+    <userquestion>
+        Do you have space for your <context key="animal"/> to roam?
+    </userquestion>
+    <errorprompt>
+        Explain to the user who just replied with this:
+          <response/>
+
+        to this question:
+          <backprompt/>
+
+        that you would like the answer to the preceding question.
+    </errorprompt>
+    <answerparse>
+      You asked the user this:
+
+      <backprompt/>
+
+      And the user replied with this:
+
+      <response/>
+
+      Tell me if the user said they had outdoor space for a pet to roam.
+      If they said they did reply "outdoor", if no reply "indoor", otherwise reply "other". Say only one word.
+    </answerparse>
+    <jump answer="indoor outdoor" nextdestination="directorindirect">
+      <![CDATA[
+      context["livingspace"] = answer
+      ]]>
+    </jump>
+  </branch>
+  <branch destinationname="directorindirect">
+    <userquestion>
+        Do you like your questions direct or do you prefer to beat around the bush?
+    </userquestion>
+    <errorprompt>
+        Explain to the user who just replied with this:
+          <response/>
+
+        to this question:
+          <backprompt/>
+
+        that you would like the answer to the preceding question.
+    </errorprompt>
+    <answerparse>
+      You asked the user this:
+
+      <backprompt/>
+
+      And the user replied with this:
+
+      <response/>
+
+      Tell me if the user said if they like their questions direct or indirect. If direct, reply "direct",
+      if indirect, reply "indirect", and if anything else, reply "other". Use only one word.
+    </answerparse>
+    <jump answer="indirect" nextdestination="recommendbreedindirect"/>
+    <jump answer="direct" nextdestination="recommendbreeddirect"/>
+  </branch>
+  <llmquestion-direct destinationname="recommendbreeddirect" nextdestination="end">
+    Using the information on breeds of <context key="animal"/> provided here:
+    
+    <context key="breedinfo"/> 
+
+    recommend a breed of dog to the user, given that they are <context key="allergy"/> to <context key="animal"/>
+    and have <context key="livingspace"/> space for the animal. 
+  </llmquestion-direct>
+  <llmquestion-indirect destinationname="recommendbreedindirect" nextdestination="end">
+    <userquestion>
+      I am ready to recommend a breed of <context key="animal"/> to you now. Ask me for a recommendation.
+    </userquestion>
+    <answerparse>
+      Using the information on breeds of <context key="animal"/> provided here:
+          <context key="breedinfo"/> 
+
+      answer this users question, given that they are <context key="allergy"/> to <context key="animal"/>
+      and have <context key="livingspace"/> space for the animal. 
+    </answerparse>
+  </llmquestion-indirect>
+  <state destinationname="dogbreed" nextdestination="allergy">
+    You have selected dogs.
+  </state>
+  <goodbye destinationname="end">
+    Thanks for talking to me. Goodbye.
+  </goodbye>
+</dialogtree>

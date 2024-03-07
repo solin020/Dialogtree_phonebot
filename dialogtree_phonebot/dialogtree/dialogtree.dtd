@@ -1,0 +1,33 @@
+<!ELEMENT dialogtree ((branch|llmquestion-direct|llmquestion-indirect|
+                      state|play|pause|askpermission)+, goodbye)>
+<!ELEMENT branch (userquestion, errorprompt, answerparse, jump*)>
+<!ELEMENT errorprompt (#PCDATA|response|context|backprompt)*>
+<!ELEMENT answerparse (#PCDATA|response|context|backprompt)*>
+<!ELEMENT userquestion (#PCDATA|context)*>
+<!ELEMENT context EMPTY>
+<!ATTLIST context key CDATA #IMPLIED>
+<!ELEMENT response EMPTY>
+<!ELEMENT backprompt EMPTY>
+<!ELEMENT state (#PCDATA|context)*>
+<!ELEMENT goodbye (#PCDATA|context)*>
+<!ATTLIST state destinationname ID #IMPLIED
+                nextdestination IDREF #IMPLIED>
+<!ATTLIST branch destinationname ID #IMPLIED>
+<!ELEMENT jump (#PCDATA)>
+<!ATTLIST jump nextdestination IDREF #IMPLIED
+               answer NMTOKENS #IMPLIED
+               accept CDATA #IMPLIED
+               function CDATA #IMPLIED>
+<!ELEMENT llmquestion-direct (#PCDATA|response|context|backprompt)*>
+<!ATTLIST llmquestion-direct destinationname ID #IMPLIED
+                nextdestination IDREF #IMPLIED>
+<!ELEMENT llmquestion-indirect (userquestion, answerparse)>
+<!ATTLIST llmquestion-indirect destinationname ID #IMPLIED
+                nextdestination IDREF #IMPLIED>
+
+<!ATTLIST goodbye destinationname ID #IMPLIED>
+<!ELEMENT play EMPTY>
+<!ATTLIST play file CDATA #REQUIRED>
+<!ELEMENT pause EMPTY>
+<!ATTLIST pause seconds CDATA #REQUIRED>
+<!ELEMENT askpermission EMPTY>
